@@ -50,7 +50,7 @@ def tradingview_energy_widget():
     components.html(html_code, height=420)
 
 # In your app:
-st.title("Energy Shock Monitor: CEE Inflation Impact")
+st.title("Energy Shock Monitor")
 tradingview_energy_widget()
 
 st.sidebar.header("Sensitivity Analysis")
