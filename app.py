@@ -3,6 +3,7 @@ import streamlit.components.v1 as components
 import plotly.graph_objects as go
 import eurostat
 import pandas as pd
+import yfinance as yf
 
 @st.cache_data(ttl=3600)
 def get_cee_energy_inflation():
@@ -101,3 +102,12 @@ selected_country = st.sidebar.selectbox("Select Country", ['PL', 'HU', 'CZ', 'RO
 
 data = get_cee_energy_inflation()
 plot_energy_pass_through(data, selected_country)
+
+def get_brent_prices():
+    # Fetch daily data for the last 2 years
+    brent = yf.Ticker("BZ=F")
+    df = brent.history(period="2y")
+    return df[['Close']].rename(columns={'Close': 'Brent_Price'})
+
+brent_data = get_brent_prices()
+st.line_chart(brent_data)
