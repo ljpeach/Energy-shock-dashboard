@@ -1,5 +1,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
+import plotly.graph_objects as go
 import eurostat
 import pandas as pd
 
