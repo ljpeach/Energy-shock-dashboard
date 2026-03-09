@@ -99,7 +99,7 @@ def plot_energy_pass_through(df, country_code):
 st.sidebar.title("CEE Region Selector")
 selected_country = st.sidebar.selectbox("Select Country", ['PL', 'HU', 'CZ', 'RO'])
 
-data = get_cee_energy_inflation('prc_hicp_midx')
+data = get_cee_macro_data('prc_hicp_midx')
 plot_energy_pass_through(data, selected_country)
 
 def get_brent_prices():
