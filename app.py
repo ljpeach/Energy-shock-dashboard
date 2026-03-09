@@ -4,23 +4,8 @@ import plotly.graph_objects as go
 import eurostat
 import pandas as pd
 import yfinance as yf
-
-@st.cache_data(ttl=3600)
-def get_cee_energy_inflation():
-    countries = ['PL', 'HU', 'CZ', 'RO', 'SK']
-    params = {'coicop': ['CP045', 'CP0722'], 'geo': countries}
-    
-    df = eurostat.get_data_df('prc_hicp_midx', filter_pars=params)
-    df = df.rename(columns=lambda x: 'geo' if 'geo' in x.lower() else x)
-    id_vars = [col for col in df.columns if not any(char.isdigit() for char in str(col))]
-    df_long = df.melt(id_vars=id_vars, var_name='date', value_name='index_value')
-    df_long['yoy_inflation'] = df_long.groupby(['geo', 'coicop'])['index_value'].pct_change(12) * 100
-    
-    return df_long
-    
+   
 def tradingview_energy_widget():
-    # Embed code from TradingView for Brent Oil and Natural Gas
-    # You can customize the symbols (UKOIL for Brent, NG1! for Gas)
     html_code = """
     <div class="tradingview-widget-container">
       <div id="tradingview_energy"></div>
@@ -50,7 +35,29 @@ def tradingview_energy_widget():
     """
     components.html(html_code, height=420)
 
-# In your app:
+@st.cache_data(ttl=3600)
+def get_cee_macro_data(dataset_code='prc_hicp_midx'):
+    countries = ['PL', 'HU', 'CZ', 'RO', 'SK']
+    if dataset_code == 'prc_hicp_midx':
+        cpi_components = ['CP045', 'CP0722']
+        parameters = {'coicop': cpi_components, 'geo': countries}
+    elif dataset_code == 'nrg_ti_m':
+        energy_imports = ['G3000', 'O4000', 'E7000']
+        parameters = {'siec': energy_imports, 'geo': countries, 'unit': 'TJ_GCV'}
+    else:
+        parameters = {'geo': countries}
+
+    df = eurostat.get_data_df(dataset_code, filter_pars=parameters)
+    df = df.rename(columns=lambda x: 'geo' if 'geo' in x.lower() else x)
+    id_vars = [col for col in df.columns if not any(char.isdigit() for char in str(col))]
+    df_long = df.melt(id_vars=id_vars, var_name='date', value_name='value')
+    df_long['date'] = pd.to_datetime(df_long['date'].str.replace('M', '-'), format='%Y-%m')
+    
+    return df_long
+
+# ----------------------------------------------------
+# -------------------- APP LAYOUT --------------------
+# ----------------------------------------------------
 st.title("Energy Shock Monitor")
 tradingview_energy_widget()
 
@@ -62,14 +69,6 @@ oil_price_shock = st.sidebar.slider("Oil Price Increase ($)", 0, 50, 10)
 cpi_impact = oil_price_shock * 0.04 
 
 st.metric("Estimated CEE CPI Impact", f"+{cpi_impact:.2f}%", delta="Inflationary", delta_color="inverse")
-
-with st.expander("Regional Vulnerability Notes"):
-    st.write("""
-    * **Poland:** High reliance on coal but gas is the marginal price setter for industry.
-    * **Hungary:** High exposure to gas; Forint (HUF) volatility amplifies the energy shock.
-    * **Czechia:** Energy-intensive industrial base makes PPI very sensitive to gas surges.
-    """)
-
 
 def plot_energy_pass_through(df, country_code):
     # Use the standardized 'geo' name here
@@ -100,7 +99,7 @@ def plot_energy_pass_through(df, country_code):
 st.sidebar.title("CEE Region Selector")
 selected_country = st.sidebar.selectbox("Select Country", ['PL', 'HU', 'CZ', 'RO'])
 
-data = get_cee_energy_inflation()
+data = get_cee_energy_inflation('prc_hicp_midx')
 plot_energy_pass_through(data, selected_country)
 
 def get_brent_prices():
