@@ -1,6 +1,32 @@
 import streamlit as st
 import streamlit.components.v1 as components
+import eurostat
+import pandas as pd
 
+@st.cache_data(ttl=3600) # Refreshes every hour
+def get_cee_energy_inflation():
+    # Define CEE Codes and Energy sub-indices
+    countries = ['PL', 'HU', 'CZ', 'RO', 'SK']
+    # CP045 = Utilities, CP0722 = Transport Fuel
+    params = {'coicop': ['CP045', 'CP0722'], 'geo': countries}
+    
+    # Fetch data from Eurostat
+    df = eurostat.get_data_df('prc_hicp_midx', filter_pars=params)
+    
+    # Clean the dataframe (Eurostat returns years/months as columns)
+    # We melt it to get a long-format time series
+    id_vars = ['last update', 'unit', 'coicop', 'geo\\time']
+    df_long = df.melt(id_vars=id_vars, var_name='date', value_name='index_value')
+    
+    # Convert date (e.g., '2024M01') to datetime
+    df_long['date'] = pd.to_datetime(df_long['date'].str.replace('M', '-'), format='%Y-%m')
+    
+    # Calculate Year-over-Year Inflation Rate
+    df_long = df_long.sort_values(['geo\\time', 'coicop', 'date'])
+    df_long['yoy_inflation'] = df_long.groupby(['geo\\time', 'coicop'])['index_value'].pct_change(12) * 100
+    
+    return df_long
+    
 def tradingview_energy_widget():
     # Embed code from TradingView for Brent Oil and Natural Gas
     # You can customize the symbols (UKOIL for Brent, NG1! for Gas)
@@ -52,3 +78,34 @@ with st.expander("Regional Vulnerability Notes"):
     * **Hungary:** High exposure to gas; Forint (HUF) volatility amplifies the energy shock.
     * **Czechia:** Energy-intensive industrial base makes PPI very sensitive to gas surges.
     """)
+
+def plot_energy_pass_through(df, country_code):
+    subset = df[df['geo\\time'] == country_code]
+    
+    fig = go.Figure()
+    
+    # Utility Channel
+    utils = subset[subset['coicop'] == 'CP045']
+    fig.add_trace(go.Scatter(x=utils['date'], y=utils['yoy_inflation'], 
+                             name="Utility Bills (YoY %)", line=dict(color='#A8DADC')))
+    
+    # Fuel Channel
+    fuel = subset[subset['coicop'] == 'CP0722']
+    fig.add_trace(go.Scatter(x=fuel['date'], y=fuel['yoy_inflation'], 
+                             name="Pump Prices (YoY %)", line=dict(color='#E63946', width=3)))
+    
+    fig.update_layout(
+        title=f"<b>{country_code} Energy Inflation Channels</b>",
+        hovermode="x unified",
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="white")
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# UI Logic
+st.sidebar.title("CEE Region Selector")
+selected_country = st.sidebar.selectbox("Select Country", ['PL', 'HU', 'CZ', 'RO'])
+
+data = get_cee_energy_inflation()
+plot_energy_pass_through(data, selected_country)
