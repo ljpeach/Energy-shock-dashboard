@@ -3,27 +3,33 @@ import streamlit.components.v1 as components
 import eurostat
 import pandas as pd
 
-@st.cache_data(ttl=3600) # Refreshes every hour
+@st.cache_data(ttl=3600)
 def get_cee_energy_inflation():
-    # Define CEE Codes and Energy sub-indices
     countries = ['PL', 'HU', 'CZ', 'RO', 'SK']
-    # CP045 = Utilities, CP0722 = Transport Fuel
     params = {'coicop': ['CP045', 'CP0722'], 'geo': countries}
     
-    # Fetch data from Eurostat
     df = eurostat.get_data_df('prc_hicp_midx', filter_pars=params)
+
+    # 1. Identify which columns are NOT dates (the ID columns)
+    # Eurostat date columns usually look like '2024M01' or '2023-01'
+    # ID columns are usually 'unit', 'coicop', 'geo\time', etc.
+    id_vars = [col for col in df.columns if not any(char.isdigit() for char in str(col))]
     
-    # Clean the dataframe (Eurostat returns years/months as columns)
-    # We melt it to get a long-format time series
-    id_vars = ['last update', 'unit', 'coicop', 'geo\\time']
+    # 2. Perform the melt using the detected ID columns
     df_long = df.melt(id_vars=id_vars, var_name='date', value_name='index_value')
     
-    # Convert date (e.g., '2024M01') to datetime
+    # 3. Standardize the Geo column name (Eurostat often uses 'geo\\time' or 'geo')
+    # We rename it to 'geo' for consistency in the rest of the app
+    geo_col = next((c for c in id_vars if 'geo' in c.lower()), None)
+    if geo_col:
+        df_long = df_long.rename(columns={geo_col: 'geo'})
+
+    # 4. Date conversion and Inflation calculation
     df_long['date'] = pd.to_datetime(df_long['date'].str.replace('M', '-'), format='%Y-%m')
+    df_long = df_long.sort_values(['geo', 'coicop', 'date'])
     
-    # Calculate Year-over-Year Inflation Rate
-    df_long = df_long.sort_values(['geo\\time', 'coicop', 'date'])
-    df_long['yoy_inflation'] = df_long.groupby(['geo\\time', 'coicop'])['index_value'].pct_change(12) * 100
+    # Calculate YoY
+    df_long['yoy_inflation'] = df_long.groupby(['geo', 'coicop'])['index_value'].pct_change(12) * 100
     
     return df_long
     
