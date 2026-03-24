@@ -113,9 +113,9 @@ def get_brent_prices():
 brent_data = get_brent_prices()
 st.line_chart(brent_data)
 
-brent_monthly = brent_data.resample('MS').mean()
-merged_df = pd.merge(brent_monthly, df_long, left_index=True, right_on='date')
-st.line_chart(merged_df)
+#brent_monthly = brent_data.resample('MS').mean()
+#merged_df = pd.merge(brent_monthly, df_long, left_index=True, right_on='date')
+#st.line_chart(merged_df)
 
 
 
