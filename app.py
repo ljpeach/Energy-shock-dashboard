@@ -125,73 +125,75 @@ st.line_chart(brent_data)
 #################################
 
 # Eurostat API Config
-BASE_URL = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/"
-DATASET_CODE = "nrg_cb_gasm"
+# --- Configuration ---
+# NRG_BAL: IC_OBS (Inland Consumption), SIEC: G3000 (Natural Gas)
+URL = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/nrg_cb_gasm?format=JSON&lang=EN&nrg_bal=IC_OBS&siec=G3000&unit=MIO_M3"
 
-def fetch_eurostat_data(geo="EU27_2020", unit="MIO_M3"):
-    """
-    Fetches Natural Gas Monthly Balance data.
-    NRG_BAL: IC_OBS (Inland Consumption), IMP (Imports), EXP (Exports)
-    """
-    # Simplified query parameters for the API
-    params = f"{DATASET_CODE}?format=JSON&lang=EN&geo={geo}&unit={unit}&nrg_bal=IC_OBS&siec=G3000"
+@st.cache_data(ttl=3600)
+def get_macro_data():
+    response = requests.get(URL)
+    data = response.json()
     
-    try:
-        response = requests.get(BASE_URL + params)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Extracting dimensions and values
-        # Note: For production, consider using 'eurostatapiclient' or 'pandas_dmx' 
-        # for more robust parsing of JSON-stat structures.
-        values = data['value']
-        index = data['dimension']['time']['category']['label']
-        
-        df = pd.DataFrame({
-            'Period': list(index.values()),
-            'Consumption': list(values.values())
-        })
-        return df
-    except Exception as e:
-        st.error(f"Error fetching data: {e}")
-        return pd.DataFrame()
+    # 1. Extract Dimensions
+    # The 'index' in JSON-stat maps the position in the 'value' dict to a category
+    time_dims = data['dimension']['time']['category']['label']
+    geo_dims = data['dimension']['geo']['category']['label']
+    
+    # 2. Extract Values safely
+    # Eurostat returns a dict where key is the index (string) and value is the number
+    values_dict = data['value']
+    
+    # 3. Create a pivot-ready list
+    records = []
+    # This nested loop ensures we align every Geo and Time period correctly
+    for geo_idx, geo_label in enumerate(data['dimension']['geo']['category']['index']):
+        for time_idx, time_label in enumerate(data['dimension']['time']['category']['index']):
+            # Eurostat uses a linear index: (geo_index * num_times) + time_index
+            internal_idx = str(geo_idx * len(time_dims) + time_idx)
+            
+            val = values_dict.get(internal_idx, None) # Use None if missing
+            
+            records.append({
+                "Entity": geo_dims[geo_label],
+                "Period": time_label,
+                "Value": val
+            })
+            
+    df = pd.DataFrame(records)
+    df['Period'] = pd.to_datetime(df['Period'], format='%Y-%M', errors='coerce')
+    return df.dropna(subset=['Value'])
 
-# --- Streamlit UI ---
-st.set_page_config(page_title="Macro Energy Shock Analyzer", layout="wide")
+# --- App Interface ---
+st.set_page_config(layout="wide", page_title="Energy Shock Monitor")
+st.title("Macro Analysis: Israel-Iran Energy Shock")
 
-st.title("🇮🇱🇮🇷 Energy Shock Impact: EU Macro Monitor")
-st.sidebar.header("Model Parameters")
+try:
+    raw_df = get_macro_data()
+    
+    # Sidebar Filters
+    target_geo = st.sidebar.selectbox("Select Economy", raw_df['Entity'].unique(), index=10)
+    price_shock = st.sidebar.slider("TTF Gas Price Shock (%)", 0, 500, 100)
+    
+    analysis_df = raw_df[raw_df['Entity'] == target_geo].sort_values('Period')
 
-# Scenario Inputs
-shock_magnitude = st.sidebar.slider("Gas Price Surge (%)", 0, 300, 50)
-pass_through = st.sidebar.slider("Cost Pass-through to CPI (%)", 0.0, 1.0, 0.4)
+    # --- Metrics Section ---
+    col1, col2, col3 = st.columns(3)
+    
+    # Heuristic: Energy Intensity of GDP (Simplified for demo)
+    # In a real model, you'd pull GDP (nama_10_gdp) to normalize this.
+    latest_vol = analysis_df['Value'].iloc[-1]
+    est_bill_increase = (latest_vol * (price_shock/100)) * 0.0008 # Dummy multiplier for EUR billions
+    
+    col1.metric("Latest Monthly Consumption", f"{latest_vol:,.0f} Mio m3")
+    col2.metric("Estimated Monthly Bill Delta", f"€{est_bill_increase:.2f}B", delta=f"{price_shock}% shock")
+    col3.metric("Current Account Risk", "High" if price_shock > 50 else "Moderate")
 
-st.markdown("""
-### 1. Natural Gas Consumption Trends (Eurostat)
-This baseline shows the current inland consumption ($IC\_OBS$) which serves as the exposure metric for your shock scenario.
-""")
-
-df_gas = fetch_eurostat_data()
-
-if not df_gas.empty:
-    fig = px.line(df_gas, x='Period', y='Consumption', 
-                 title="Monthly Inland Gas Consumption (Mio m3)",
-                 template="plotly_white")
+    # --- Charting ---
+    fig = px.area(analysis_df, x='Period', y='Value', 
+                  title=f"Baseline Natural Gas Consumption: {target_geo}",
+                  labels={"Value": "Mio m3", "Period": "Time"})
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- Analytical Overlay ---
-    st.subheader("2. Impact Assessment: Firm Profitability & Households")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.info("**Supply-Side: Industry Impact**")
-        impact = shock_magnitude * 0.12 # Simplified coefficient for margin erosion
-        st.metric("Estimated Margin Compression (Ind. Avg)", f"-{impact:.2f}%")
-        st.write("High-gas intensity sectors (Chemicals, Glass, Steel) will see non-linear investment delays.")
-
-    with col2:
-        st.info("**Demand-Side: Household Bills**")
-        real_income_hit = (shock_magnitude * pass_through) / 10
-        st.metric("Real Disposable Income Delta", f"-{real_income_hit:.2f}%")
-        st.write("This scales the 'External Account' deficit via the energy trade balance.")
+except Exception as e:
+    st.error(f"Mapping Error: {e}")
+    st.info("This usually happens when the API index doesn't match the dimension count. The logic above fixes this by using .get() on the value dictionary.")
