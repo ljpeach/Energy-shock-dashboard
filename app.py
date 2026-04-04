@@ -172,7 +172,7 @@ try:
     
     # Sidebar Filters
     target_geo = st.sidebar.selectbox("Select Economy", raw_df['Entity'].unique(), index=10)
-    price_shock = st.sidebar.slider("TTF Gas Price Shock (%)", 0, 500, 100)
+    price_shock = st.sidebar.slider("TTF Nat Gas Price Shock (%)", 0, 500, 100)
     
     analysis_df = raw_df[raw_df['Entity'] == target_geo].sort_values('Period')
 
